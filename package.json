@@ -1,0 +1,30 @@
+{
+  "name": "ncc-zip",
+  "version": "1.0.0",
+  "description": "Wrapper around ncc that pipes the output in a zip archive.",
+  "repository": "https://github.com/ofhouse/ncc-zip.git",
+  "bin": {
+    "ncc-zip": "cli.js"
+  },
+  "author": {
+    "name": "Felix Haus",
+    "url": "https://felix.house/"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@vercel/ncc": "*"
+  },
+  "dependencies": {
+    "archiver": "^5.2.0",
+    "arg": "^5.0.0",
+    "mkdirp": "^1.0.4",
+    "rimraf": "^3.0.2"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.27.0"
+  },
+  "files": [
+    "utils/shebang.js",
+    "cli.js"
+  ]
+}
