@@ -7,6 +7,7 @@ const crypto = require("crypto");
 const { writeFileSync, createWriteStream, existsSync, symlinkSync } = require("fs");
 const archiver = require('archiver');
 const mkdirp = require("mkdirp");
+const minimatch = require("minimatch");
 const { version: nccVersion } = require('@vercel/ncc/package.json');
 
 // License and TypeScript plugins have Webpack deprecation warnings
@@ -30,6 +31,7 @@ Options:
   -s, --source-map         Generate source map
   --no-source-map-register Skip source-map-register source map support
   -e, --external [mod]     Skip bundling 'mod'. Can be used many times
+  -i, --ignore [asset]     Ignore asset with name or glob pattern to be included in zip
   -q, --quiet              Disable build summaries / non-error outputs
   -w, --watch              Start a watched build
   -t, --transpile-only     Use transpileOnly option with the ts-loader
@@ -131,6 +133,8 @@ async function runCmd (argv, stdout, stderr) {
       "-d": "--debug",
       "--external": [String],
       "-e": "--external",
+      "--ignore": [String],
+      "-i": "--ignore",
       "--out": String,
       "-o": "--out",
       "--filename": String,
@@ -269,6 +273,8 @@ async function runCmd (argv, stdout, stderr) {
         outDir = resolve(eval("'dist'"));
         mkdirp.sync(outDir);
 
+        const ignorePatterns = args['--ignore'];
+
         await new Promise((resolve, reject) => {
           outputFile.on('close', resolve);
           outputFile.on('error', reject);
@@ -287,10 +293,16 @@ async function runCmd (argv, stdout, stderr) {
               continue;
             }
 
-            archive.append(Buffer.from(assets[asset].source), {
-              name: asset,
-              mode: assets[asset].permissions,
-            });
+            if (
+              !ignorePatterns.some((ignorePattern) => {
+                return minimatch(asset, ignorePattern);
+              })
+            ) {
+              archive.append(Buffer.from(assets[asset].source), {
+                name: asset,
+                mode: assets[asset].permissions,
+              });
+            }
           }
 
           for (const symlink of Object.keys(symlinks)) {

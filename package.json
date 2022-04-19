@@ -1,6 +1,6 @@
 {
   "name": "ncc-zip",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Wrapper around ncc that pipes the output in a zip archive.",
   "repository": "https://github.com/ofhouse/ncc-zip.git",
   "bin": {
@@ -17,6 +17,7 @@
   "dependencies": {
     "archiver": "^5.2.0",
     "arg": "^5.0.0",
+    "minimatch": "^5.0.1",
     "mkdirp": "^1.0.4",
     "rimraf": "^3.0.2"
   },
