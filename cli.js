@@ -306,6 +306,7 @@ async function runCmd(argv, stdout, stderr) {
             }
 
             if (
+              ignorePatterns &&
               !ignorePatterns.some((ignorePattern) => {
                 return minimatch(asset, ignorePattern);
               })
