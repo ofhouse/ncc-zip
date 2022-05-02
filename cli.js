@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 
-const { resolve, relative, dirname, sep, extname } = require("path");
+const { resolve, relative, dirname, sep } = require("path");
 const shebangRegEx = require("./utils/shebang");
 const rimraf = require("rimraf");
 const crypto = require("crypto");
-const { writeFileSync, createWriteStream, existsSync, symlinkSync } = require("fs");
-const archiver = require('archiver');
+const {
+  writeFileSync,
+  createWriteStream,
+  existsSync,
+  symlinkSync,
+} = require("fs");
+const archiver = require("archiver");
 const mkdirp = require("mkdirp");
 const minimatch = require("minimatch");
-const { version: nccVersion } = require('@vercel/ncc/package.json');
+const { version: nccVersion } = require("@vercel/ncc/package.json");
 
 // License and TypeScript plugins have Webpack deprecation warnings
 // we don't want these on when running as a CLI utility
@@ -25,39 +30,74 @@ Commands:
 
 Options:
   -o, --out [file]         Output filename for build (defaults to dist.zip)
-  -f, --filename [file]    The name of the main file in the zip (defaults to index)
-  -m, --minify             Minify output
-  -C, --no-cache           Skip build cache population
-  -s, --source-map         Generate source map
-  --no-source-map-register Skip source-map-register source map support
-  -e, --external [mod]     Skip bundling 'mod'. Can be used many times
-  -i, --ignore [asset]     Ignore asset with name or glob pattern to be included in zip
-  -q, --quiet              Disable build summaries / non-error outputs
-  -w, --watch              Start a watched build
-  -t, --transpile-only     Use transpileOnly option with the ts-loader
-  --v8-cache               Emit a build using the v8 compile cache
+  -f, --filename [file]    Name of the main file in the zip (defaults to index)
+  -c, --config [file]      Path to the ncc.config.json file
+  -i, --ignore [asset]     Ignore asset(s) with name or glob pattern to be included in zip
   --license [file]         Adds a file containing licensing information to the output
-  --stats-out [file]       Emit webpack stats as json to the specified output file
-  --target                  What build target to use for webpack (default: es6)
+  --compression            Level of compression to use (default 5)
 `;
 
 // support an API mode for CLI testing
 let api = false;
 if (require.main === module) {
   runCmd(process.argv.slice(2), process.stdout, process.stderr)
-  .then((watching) => {
-    if (!watching)
-      process.exit();
-  })
-  .catch(e => {
-    if (!e.silent)
-      console.error(e.nccError ? e.message : e);
-    process.exit(e.exitCode || 1);
-  });
-}
-else {
+    .then((watching) => {
+      if (!watching) process.exit();
+    })
+    .catch((e) => {
+      if (!e.silent) console.error(e.nccError ? e.message : e);
+      process.exit(e.exitCode || 1);
+    });
+} else {
   module.exports = runCmd;
   api = true;
+}
+
+/**
+ * Reads the config in the following order:
+ * 1. Check if config path is present
+ * 2. Lookup for ncc.config.json
+ * 3. Lookup for "ncc" key in package.json
+ */
+function getConfig(cwd, configPath) {
+  function lookupConfig(cwd, pathToFile) {
+    const lookupPath = resolve(cwd, pathToFile);
+    if (!existsSync(lookupPath)) {
+      return null;
+    }
+
+    try {
+      return require(lookupPath);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // Custom config path provided
+  if (configPath) {
+    const config = lookupConfig(cwd, configPath);
+    if (config === null) {
+      throw new Error(`Could not find config at ${configPath}`);
+    } else if (config === false) {
+      throw new Error(`Error parsing config at ${configPath}`);
+    }
+
+    return config;
+  }
+
+  // Check for ncc.config.json
+  const config = lookupConfig(cwd, "ncc.config.json");
+  if (config) {
+    return config;
+  }
+
+  // Check for ncc key in package.json
+  const packageJson = lookupConfig(cwd, "package.json");
+  if (packageJson && packageJson.ncc) {
+    return packageJson.ncc;
+  }
+
+  return {};
 }
 
 function renderSummary(code, map, assets, ext, outDir, buildTime) {
@@ -85,9 +125,11 @@ function renderSummary(code, map, assets, ext, outDir, buildTime) {
   let indexRender = `${codeSize
     .toString()
     .padStart(sizePadding, " ")}kB  ${outDir}index${ext}`;
-  let indexMapRender = map ? `${mapSize
-    .toString()
-    .padStart(sizePadding, " ")}kB  ${outDir}index${ext}.map` : '';
+  let indexMapRender = map
+    ? `${mapSize
+        .toString()
+        .padStart(sizePadding, " ")}kB  ${outDir}index${ext}.map`
+    : "";
 
   let output = "",
     first = true;
@@ -125,77 +167,59 @@ function nccError(msg, exitCode = 1) {
   throw err;
 }
 
-async function runCmd (argv, stdout, stderr) {
+async function runCmd(argv, stdout, stderr) {
   let args;
   try {
-    args = require("arg")({
-      "--debug": Boolean,
-      "-d": "--debug",
-      "--external": [String],
-      "-e": "--external",
-      "--ignore": [String],
-      "-i": "--ignore",
-      "--out": String,
-      "-o": "--out",
-      "--filename": String,
-      "-f": "--filename",
-      "--minify": Boolean,
-      "-m": "--minify",
-      "--source-map": Boolean,
-      "-s": "--source-map",
-      "--no-cache": Boolean,
-      "-C": "--no-cache",
-      "--no-asset-builds": Boolean,
-      "--no-source-map-register": Boolean,
-      "--quiet": Boolean,
-      "-q": "--quiet",
-      "--watch": Boolean,
-      "-w": "--watch",
-      "--v8-cache": Boolean,
-      "--transpile-only": Boolean,
-      "-t": "--transpile-only",
-      "--license": String,
-      "--stats-out": String,
-      "--target": String
-    }, {
-      permissive: false,
-      argv
-    });
+    args = require("arg")(
+      {
+        "--ignore": [String],
+        "-i": "--ignore",
+        "--out": String,
+        "-o": "--out",
+        "--filename": String,
+        "-f": "--filename",
+        "--license": String,
+        "--stats-out": String,
+        "--quiet": Boolean,
+        "-q": "--quiet",
+      },
+      {
+        permissive: false,
+        argv,
+      }
+    );
   } catch (e) {
     if (e.message.indexOf("Unknown or unexpected option") === -1) throw e;
     nccError(e.message + `\n${usage}`, 2);
   }
 
-  if (args._.length === 0)
-    nccError(`Error: No command specified\n${usage}`, 2);
+  if (args._.length === 0) nccError(`Error: No command specified\n${usage}`, 2);
 
   let run = false;
   let outDir = args["--out"];
   const quiet = args["--quiet"];
   const statsOutFile = args["--stats-out"];
-  const outFileName = args["--filename"] || 'index';
+  const outFileName = args["--filename"] || "index";
 
   switch (args._[0]) {
     case "cache":
-      if (args._.length > 2)
-        errTooManyArguments("cache");
+      if (args._.length > 2) errTooManyArguments("cache");
 
-      const flags = Object.keys(args).filter(arg => arg.startsWith("--"));
-      if (flags.length)
-        errFlagNotCompatible(flags[0], "cache");
+      const flags = Object.keys(args).filter((arg) => arg.startsWith("--"));
+      if (flags.length) errFlagNotCompatible(flags[0], "cache");
 
       const cacheDir = require("./utils/ncc-cache-dir");
       switch (args._[1]) {
         case "clean":
           rimraf.sync(cacheDir);
-        break;
+          break;
         case "dir":
-          stdout.write(cacheDir + '\n');
-        break;
+          stdout.write(cacheDir + "\n");
+          break;
         case "size":
           require("get-folder-size")(cacheDir, (err, size) => {
             if (err) {
-              if (err.code === 'ENOENT') {
+              if (err.code === "ENOENT") {
                 stdout.write("0MB\n");
                 return;
               }
@@ -203,85 +227,73 @@ async function runCmd (argv, stdout, stderr) {
             }
             stdout.write(`${(size / 1024 / 1024).toFixed(2)}MB\n`);
           });
-        break;
+          break;
         default:
           errInvalidCommand("cache " + args._[1]);
       }
 
-    break;
+      break;
     case "run":
-      if (args._.length > 2)
-        errTooManyArguments("run");
+      if (args._.length > 2) errTooManyArguments("run");
 
-      if (args["--out"])
-        errFlagNotCompatible("--out", "run");
+      if (args["--out"]) errFlagNotCompatible("--out", "run");
 
-      if (args["--watch"])
-        errFlagNotCompatible("--watch", "run");
+      if (args["--watch"]) errFlagNotCompatible("--watch", "run");
 
       outDir = resolve(
         require("os").tmpdir(),
-        crypto.createHash('md5').update(resolve(args._[1] || ".")).digest('hex')
+        crypto
+          .createHash("md5")
+          .update(resolve(args._[1] || "."))
+          .digest("hex")
       );
-      if (existsSync(outDir))
-        rimraf.sync(outDir);
+      if (existsSync(outDir)) rimraf.sync(outDir);
       run = true;
 
     // fallthrough
     case "build":
-      if (args._.length > 2)
-        errTooManyArguments("build");
+      if (args._.length > 2) errTooManyArguments("build");
 
       let startTime = Date.now();
       let ps;
       const buildFile = eval("require.resolve")(resolve(args._[1] || "."));
-      const ext = buildFile.endsWith('.cjs') ? '.cjs' : '.js';
-      const ncc = require("@vercel/ncc")(
-        buildFile,
-        {
-          debugLog: args["--debug"],
-          minify: args["--minify"],
-          externals: args["--external"],
-          sourceMap: args["--source-map"] || run,
-          sourceMapRegister: args["--no-source-map-register"] ? false : undefined,
-          noAssetBuilds: args["--no-asset-builds"] ? true : false,
-          cache: args["--no-cache"] ? false : undefined,
-          watch: args["--watch"],
-          v8cache: args["--v8-cache"],
-          transpileOnly: args["--transpile-only"],
-          license: args["--license"],
-          quiet,
-          target: args["--target"]
-        }
-      );
+      const ext = buildFile.endsWith(".cjs") ? ".cjs" : ".js";
+      const nccConfig = getConfig(process.cwd(), args["--config"]);
 
-      async function handler ({ err, code, map, assets, symlinks, stats }) {
+      // Override quire config from CLI
+      if (quiet !== undefined) {
+        nccConfig.quiet = quiet;
+      }
+
+      const ncc = require("@vercel/ncc")(buildFile, nccConfig);
+
+      async function handler({ err, code, map, assets, symlinks, stats }) {
         // handle watch errors
         if (err) {
-          stderr.write(err + '\n');
-          stdout.write('Watching for changes...\n');
+          stderr.write(err + "\n");
+          stdout.write("Watching for changes...\n");
           return;
         }
 
-        const archive = archiver('zip', {
-          zlib: { level: 5 }, // Optimal compression
+        const archive = archiver("zip", {
+          zlib: { level: args["--compression"] || 5 },
         });
-        const outputFile = createWriteStream(outDir || 'dist.zip');
+        const outputFile = createWriteStream(outDir || "dist.zip");
         archive.pipe(outputFile);
 
         // When zipping other files should be written to `dist/`
         outDir = resolve(eval("'dist'"));
         mkdirp.sync(outDir);
 
-        const ignorePatterns = args['--ignore'];
+        const ignorePatterns = args["--ignore"];
 
         await new Promise((resolve, reject) => {
-          outputFile.on('close', resolve);
-          outputFile.on('error', reject);
+          outputFile.on("close", resolve);
+          outputFile.on("error", reject);
 
           archive.append(Buffer.from(code), {
             name: `${outFileName}${ext}`,
-            mode: code.match(shebangRegEx) ? 0o777 : 0o666
+            mode: code.match(shebangRegEx) ? 0o777 : 0o666,
           });
 
           if (map) writeFileSync(`${outDir}/index${ext}.map`, map);
@@ -320,12 +332,11 @@ async function runCmd (argv, stdout, stderr) {
               assets,
               ext,
               run ? "" : relative(process.cwd(), outDir),
-              Date.now() - startTime,
-            ) + '\n'
+              Date.now() - startTime
+            ) + "\n"
           );
 
-          if (args["--watch"])
-            stdout.write('Watching for changes...\n');
+          if (args["--watch"]) stdout.write("Watching for changes...\n");
         }
 
         if (statsOutFile)
@@ -333,32 +344,31 @@ async function runCmd (argv, stdout, stderr) {
 
         if (run) {
           // find node_modules
-          const root = resolve('/node_modules');
+          const root = resolve("/node_modules");
           let nodeModulesDir = dirname(buildFile) + "/node_modules";
           do {
             if (nodeModulesDir === root) {
               nodeModulesDir = undefined;
               break;
             }
-            if (existsSync(nodeModulesDir))
-              break;
-          } while (nodeModulesDir = resolve(nodeModulesDir, "../../node_modules"));
+            if (existsSync(nodeModulesDir)) break;
+          } while (
+            (nodeModulesDir = resolve(nodeModulesDir, "../../node_modules"))
+          );
           if (nodeModulesDir)
             symlinkSync(nodeModulesDir, outDir + "/node_modules", "junction");
           ps = require("child_process").fork(`${outDir}/index${ext}`, {
-            stdio: api ? 'pipe' : 'inherit'
+            stdio: api ? "pipe" : "inherit",
           });
           if (api) {
             ps.stdout.pipe(stdout);
             ps.stderr.pipe(stderr);
           }
           return new Promise((resolve, reject) => {
-            function exit (code) {
+            function exit(code) {
               require("rimraf").sync(outDir);
-              if (code === 0)
-                resolve();
-              else
-                reject({ silent: true, exitCode: code });
+              if (code === 0) resolve();
+              else reject({ silent: true, exitCode: code });
               process.off("SIGTERM", exit);
               process.off("SIGINT", exit);
             }
@@ -371,10 +381,9 @@ async function runCmd (argv, stdout, stderr) {
       if (args["--watch"]) {
         ncc.handler(handler);
         ncc.rebuild(() => {
-          if (ps)
-            ps.kill();
+          if (ps) ps.kill();
           startTime = Date.now();
-          stdout.write('File change, rebuilding...\n');
+          stdout.write("File change, rebuilding...\n");
         });
         return true;
       } else {
@@ -386,27 +395,30 @@ async function runCmd (argv, stdout, stderr) {
       nccError(usage, 2);
 
     case "version":
-      stdout.write(require("./package.json").version + '\n');
+      stdout.write(require("./package.json").version + "\n");
       break;
 
     default:
       errInvalidCommand(args._[0], 2);
   }
 
-  function errTooManyArguments (cmd) {
+  function errTooManyArguments(cmd) {
     nccError(`Error: Too many ${cmd} arguments provided\n${usage}`, 2);
   }
 
-  function errFlagNotCompatible (flag, cmd) {
-    nccError(`Error: ${flag} flag is not compatible with ncc ${cmd}\n${usage}`, 2);
+  function errFlagNotCompatible(flag, cmd) {
+    nccError(
+      `Error: ${flag} flag is not compatible with ncc ${cmd}\n${usage}`,
+      2
+    );
   }
 
-  function errInvalidCommand (cmd) {
+  function errInvalidCommand(cmd) {
     nccError(`Error: Invalid command "${cmd}"\n${usage}`, 2);
   }
 
   // remove me when node.js makes this the default behavior
-  process.on("unhandledRejection", e => {
+  process.on("unhandledRejection", (e) => {
     throw e;
   });
 }
