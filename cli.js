@@ -260,9 +260,14 @@ async function runCmd(argv, stdout, stderr) {
       const ext = buildFile.endsWith(".cjs") ? ".cjs" : ".js";
       const nccConfig = getConfig(process.cwd(), args["--config"]);
 
-      // Override quire config from CLI
+      // Override quiet config from CLI
       if (quiet !== undefined) {
         nccConfig.quiet = quiet;
+      }
+
+      // Override license config from CLI
+      if (args["--license"] !== undefined) {
+        nccConfig.license = args["--license"];
       }
 
       const ncc = require("@vercel/ncc")(buildFile, nccConfig);
