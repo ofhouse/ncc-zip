@@ -1,5 +1,9 @@
 # Changelog of ncc-zip
 
+## 2.1.0 (May 28, 2022)
+
+- Fix: Reuse `--license` flag content in config
+
 ## 2.0.0 (May 02, 2022)
 
 - Uses external config file (`ncc.config.json`) for configuration of the ncc compiler ([#3](https://github.com/ofhouse/ncc-zip/issues/3), [#4](https://github.com/ofhouse/ncc-zip/pull/4))
